@@ -117,6 +117,49 @@ if (authToken) {
 }
 ```
 
+## Invite links (one link per volunteer, works across apps)
+
+Invites are **stateless signed tokens** — no database table, no shared storage. Every app that sets the **same** `LINKEDTRUST_INVITE_SECRET` can verify the same token, so **one link works at every app** (Marten, cases, ...) without those apps sharing a database or calling each other.
+
+### 1. Settings (add to each app)
+
+```python
+LINKEDTRUST_INVITE_SECRET = os.environ.get("LINKEDTRUST_INVITE_SECRET", "")  # SAME value on every app
+LINKEDTRUST_REQUIRE_INVITE = True     # only invited people may create an account
+LINKEDTRUST_DEFAULT_ROLE = "volunteer"
+LINKEDTRUST_APP_SLUG = "marten"       # or "cases" — lets you scope an invite to specific apps
+```
+
+`LINKEDTRUST_REQUIRE_INVITE` defaults to `False`, so existing login-only deployments are unaffected until you opt in.
+
+### 2. Mint a link
+
+CLI:
+
+```bash
+python manage.py lt_mint_invite --email jane@example.org --role volunteer \
+    --apps marten,cases --base https://help.raisethevoices.org --days 14
+```
+
+prints:
+
+```
+https://help.raisethevoices.org/api/v1/auth/linkedtrust/redirect?invite=<token>
+```
+
+Send that one link to the volunteer. Because both apps share the secret, the **same token also logs them into cases** — either give them the one link (it lands on Marten, and cases recognizes them on first "Sign in with LinkedTrust"), or build the cases link with `--base https://cases.raisethevoices.org`.
+
+Or use the built-in admin page: **`/api/v1/auth/linkedtrust/invites/`** (staff/superuser only) — a one-field form that generates the link to copy.
+
+### 3. What enforcement happens on callback
+
+- Signature + expiry checked.
+- If the invite is bound to an email, the authenticated LinkedTrust email must match.
+- If `--apps` was set, the token is only accepted at those `LINKEDTRUST_APP_SLUG`s.
+- If `LINKEDTRUST_REQUIRE_INVITE = True` and no valid invite is present, account creation is refused (redirect to `/login?error=invite_required`).
+
+The verified invite payload (`{e, r, a, x, j}`) is passed to your `LINKEDTRUST_USER_HANDLER` as `userinfo["invite"]`, so your adapter can assign the role / project memberships.
+
 ## How it works
 
 1. **Frontend** → `GET /api/v1/auth/linkedtrust/redirect`
