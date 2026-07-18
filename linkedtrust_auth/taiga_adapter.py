@@ -10,6 +10,46 @@ from django.db import IntegrityError, transaction
 
 logger = logging.getLogger(__name__)
 
+from . import settings as lt
+
+
+def _provision_starter_memberships(user, invite):
+    """Idempotently add `user` to configured starter Taiga projects with a
+    low-privilege role. Best-effort: failures are logged and swallowed so they
+    can never block or break SSO login."""
+    from taiga.projects.models import Membership, Project
+
+    if lt.get("LINKEDTRUST_PROVISION_REQUIRE_INVITE") and not invite:
+        return
+    slugs = lt.get("LINKEDTRUST_STARTER_PROJECT_SLUGS") or []
+    if not slugs:
+        return
+
+    role_map = lt.get("LINKEDTRUST_ROLE_MAP") or {}
+    invite_role = (invite or {}).get("r")
+    role_name = (role_map.get(invite_role) if invite_role else None) \
+        or lt.get("LINKEDTRUST_MEMBER_ROLE_NAME") or "stakeholder"
+
+    for slug in slugs:
+        try:
+            with transaction.atomic():
+                project = Project.objects.get(slug=slug)
+                role = (project.roles.filter(slug=role_name).first()
+                        or project.roles.filter(name__iexact=role_name).first())
+                if role is None:
+                    logger.warning("linkedtrust provision: role %r not in project %r", role_name, slug)
+                    continue
+                _, created = Membership.objects.get_or_create(
+                    user=user, project=project,
+                    defaults={"role": role, "is_admin": False, "email": user.email},
+                )
+                if created:
+                    logger.info("linkedtrust provision: added %s to %r as %s", user.email, slug, role.slug)
+        except Project.DoesNotExist:
+            logger.warning("linkedtrust provision: starter project %r not found", slug)
+        except Exception:
+            logger.exception("linkedtrust provision: failed for project %r", slug)
+
 
 @transaction.atomic
 def get_or_create_user(userinfo):
@@ -57,6 +97,11 @@ def get_or_create_user(userinfo):
             user.save()
         except IntegrityError:
             raise ValueError("Could not create account - please try again")
+
+    try:
+        _provision_starter_memberships(user, userinfo.get("invite"))
+    except Exception:
+        logger.exception("linkedtrust provision: unexpected error for %s", email)
 
     tokens = make_auth_response_data(user)
     return user, tokens

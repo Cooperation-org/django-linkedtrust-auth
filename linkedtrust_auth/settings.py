@@ -15,6 +15,12 @@ DEFAULTS = {
     "LINKEDTRUST_REQUIRE_INVITE": False,     # if True, only users with a valid invite may create an account
     "LINKEDTRUST_DEFAULT_ROLE": "volunteer", # role stamped on invites/users when none is given
     "LINKEDTRUST_APP_SLUG": "",              # this app's slug (e.g. "marten", "cases"); used to scope invites
+
+    # --- Auto-provision starter project memberships on login (optional) ---
+    "LINKEDTRUST_STARTER_PROJECT_SLUGS": [],   # Taiga project slugs a new volunteer is added to
+    "LINKEDTRUST_MEMBER_ROLE_NAME": "stakeholder",  # low-priv role, matched by slug then name
+    "LINKEDTRUST_PROVISION_REQUIRE_INVITE": True,   # only provision invited users (engineer flow unchanged)
+    "LINKEDTRUST_ROLE_MAP": {},                # optional invite-role -> Taiga role name
 }
 
 
