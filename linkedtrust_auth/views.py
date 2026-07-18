@@ -39,9 +39,11 @@ class RedirectView(View):
         else:
             request.session.pop(INVITE_SESSION_KEY, None)
 
-        # Build the callback URL pointing back to this Django app
-        callback_path = request.resolver_match.route.rsplit("redirect", 1)[0] + "callback"
-        callback_url = request.build_absolute_uri(f"/{callback_path}")
+        # Prefer a fixed, IdP-registered callback URL if configured; else auto-build.
+        callback_url = lt.get("LINKEDTRUST_REDIRECT_URI")
+        if not callback_url:
+            callback_path = request.resolver_match.route.rsplit("redirect", 1)[0] + "callback"
+            callback_url = request.build_absolute_uri(f"/{callback_path}")
         request.session[REDIRECT_URI_SESSION_KEY] = callback_url
 
         try:
