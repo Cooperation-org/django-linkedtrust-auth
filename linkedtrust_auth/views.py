@@ -176,7 +176,7 @@ class InviteDashboardView(View):
                              ttl_seconds=days * 86400, now=time.time(),
                              jti=uuid.uuid4().hex[:8])
         base = request.build_absolute_uri("/").rstrip("/")
-        link = f"{base}/api/v1/auth/linkedtrust/redirect?invite={token}"
+        link = f"{base}/accounts/linkedtrust/redirect?invite={token}"
         return self._render(request, link=link)
 
     def _render(self, request, link):
