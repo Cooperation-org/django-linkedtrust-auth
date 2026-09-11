@@ -102,6 +102,25 @@ Your frontend login button just navigates to the backend:
 window.location.href = `${API_BASE}/auth/linkedtrust/redirect`;
 ```
 
+### 7b. Multiple frontends on one backend (optional)
+
+When several SPA hosts share one backend (e.g. `marten.workers.vc` and
+`chiku.workers.vc` against one Taiga), each frontend tells the backend where
+to return it:
+
+```js
+const next = encodeURIComponent(`${window.location.origin}/oauth/callback`);
+window.location.href = `${API_BASE}/auth/linkedtrust/redirect?next=${next}`;
+```
+
+The backend carries the value through the OIDC round-trip in the session and
+redirects the browser there with the tokens in the fragment. Only the **origin**
+is honored — the callback path always comes from
+`LINKEDTRUST_FRONTEND_CALLBACK` — and only origins listed in
+`LINKEDTRUST_FRONTEND_URL` / `LINKEDTRUST_FRONTEND_URLS` are accepted; anything
+else falls back to the default frontend. Callers that send no `next` behave
+exactly as before, so existing single-frontend deployments need no changes.
+
 Your frontend callback page (`/oauth/callback`) reads tokens from the URL fragment:
 
 ```js
@@ -162,7 +181,7 @@ The verified invite payload (`{e, r, a, x, j}`) is passed to your `LINKEDTRUST_U
 
 ## How it works
 
-1. **Frontend** → `GET /api/v1/auth/linkedtrust/redirect`
+1. **Frontend** → `GET /api/v1/auth/linkedtrust/redirect` (or `.../redirect?next=<frontend-callback-URL>` for multi-frontend setups — see 7b)
 2. **Django** stores CSRF state in session, **302** → IdP authorize endpoint
 3. **User** authenticates at IdP (Google, Bluesky, or LinkedTrust account)
 4. **IdP** → `GET /api/v1/auth/linkedtrust/callback?code=...&state=...`

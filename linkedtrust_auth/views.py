@@ -1,6 +1,6 @@
 # Generic Django views for LinkedTrust OIDC server-side flow.
 #
-# GET  /redirect  → 302 to IdP authorize endpoint
+# GET  /redirect[?next=<frontend callback URL>]  → 302 to IdP authorize endpoint
 # GET  /callback  → exchanges code, calls get_or_create_user hook, redirects to frontend
 #
 # The consuming app provides a `get_or_create_user(userinfo) -> (user, tokens_dict)` hook
@@ -9,7 +9,7 @@
 import logging
 import time
 import uuid
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from django.http import HttpResponseRedirect, HttpResponseBadRequest
 from django.views import View
@@ -23,6 +23,40 @@ logger = logging.getLogger(__name__)
 STATE_SESSION_KEY = "linkedtrust_oauth_state"
 REDIRECT_URI_SESSION_KEY = "linkedtrust_redirect_uri"
 INVITE_SESSION_KEY = "linkedtrust_invite_token"
+NEXT_SESSION_KEY = "linkedtrust_next_origin"
+
+
+def _origin_of(url):
+    """Origin (scheme://host[:port]) of an absolute URL, lowercased — or None."""
+    if not url:
+        return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return None
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}"
+
+
+def _allowed_origins():
+    """LINKEDTRUST_FRONTEND_URL plus every LINKEDTRUST_FRONTEND_URLS entry, as origins."""
+    raw = [lt.get("LINKEDTRUST_FRONTEND_URL")] + (lt.get("LINKEDTRUST_FRONTEND_URLS") or "").split(",")
+    return {o for o in (_origin_of(u.strip()) for u in raw if u and u.strip()) if o}
+
+
+def resolve_next_origin(raw_next):
+    """
+    Validate a ?next= value from /redirect against the allowlist.
+    Returns the origin to return the browser to, or None to keep the
+    default frontend. Only the origin is honored — the callback path always
+    comes from LINKEDTRUST_FRONTEND_CALLBACK — so a crafted path cannot
+    smuggle tokens anywhere, even inside an allowlisted origin.
+    """
+    origin = _origin_of(raw_next)
+    if origin and origin in _allowed_origins():
+        return origin
+    return None
 
 
 class RedirectView(View):
@@ -38,6 +72,16 @@ class RedirectView(View):
             request.session[INVITE_SESSION_KEY] = invite_token
         else:
             request.session.pop(INVITE_SESSION_KEY, None)
+
+        # Carry a validated return origin (?next=) through the OIDC
+        # round-trip in the session. Unknown origins are dropped — the
+        # callback falls back to LINKEDTRUST_FRONTEND_URL, preserving the
+        # single-frontend behavior for callers that send no next.
+        next_origin = resolve_next_origin(request.GET.get("next"))
+        if next_origin:
+            request.session[NEXT_SESSION_KEY] = next_origin
+        else:
+            request.session.pop(NEXT_SESSION_KEY, None)
 
         # Build the callback URL pointing back to this Django app
         callback_path = request.resolver_match.route.rsplit("redirect", 1)[0] + "callback"
@@ -128,15 +172,27 @@ class CallbackView(View):
     def _frontend_url(self):
         return lt.get("LINKEDTRUST_FRONTEND_URL").rstrip("/")
 
+    def _frontend_base(self, request):
+        """
+        Per-flow frontend base: the validated ?next= origin when the flow
+        carried one, else the default frontend. The origin is re-checked
+        against the allowlist here (single-use pop) so a stale session from
+        before a config change cannot redirect anywhere unlisted.
+        """
+        origin = request.session.pop(NEXT_SESSION_KEY, None)
+        if origin and origin in _allowed_origins():
+            return origin
+        return self._frontend_url()
+
     def _success(self, request, tokens):
         """Redirect to frontend with tokens in URL fragment (not query — keeps them out of logs)."""
-        frontend = self._frontend_url()
+        frontend = self._frontend_base(request)
         callback_path = lt.get("LINKEDTRUST_FRONTEND_CALLBACK")
         fragment = urlencode(tokens)
         return HttpResponseRedirect(f"{frontend}{callback_path}#{fragment}")
 
     def _fail(self, request, error_code):
-        frontend = self._frontend_url()
+        frontend = self._frontend_base(request)
         return HttpResponseRedirect(f"{frontend}/login?error={error_code}")
 
 

@@ -8,6 +8,11 @@ DEFAULTS = {
     "LINKEDTRUST_SCOPES": "openid email profile trust",
     "LINKEDTRUST_FRONTEND_URL": "",          # where to redirect browser after login
     "LINKEDTRUST_FRONTEND_CALLBACK": "/oauth/callback",  # path on frontend that receives tokens
+    # Extra frontend origins allowed as a per-flow ?next= return address
+    # (comma-separated absolute origins, e.g. "https://chiku.workers.vc").
+    # LINKEDTRUST_FRONTEND_URL itself is always allowed; unset means every
+    # flow returns there, exactly as before.
+    "LINKEDTRUST_FRONTEND_URLS": "",
 
     # --- Invite links (optional; login works without any of these) ---
     "LINKEDTRUST_INVITE_SECRET": "",         # shared HMAC secret; SAME value on every app that honors the invite
