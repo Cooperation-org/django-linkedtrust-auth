@@ -13,6 +13,7 @@ from urllib.parse import urlencode, urlsplit
 
 from django.http import HttpResponseRedirect, HttpResponseBadRequest
 from django.views import View
+from django.urls import get_script_prefix
 
 from . import settings as lt
 from . import invites
@@ -85,7 +86,7 @@ class RedirectView(View):
 
         # Build the callback URL pointing back to this Django app
         callback_path = request.resolver_match.route.rsplit("redirect", 1)[0] + "callback"
-        callback_url = request.build_absolute_uri(f"/{callback_path}")
+        callback_url = request.build_absolute_uri(f"{get_script_prefix()}{callback_path}")
         request.session[REDIRECT_URI_SESSION_KEY] = callback_url
 
         try:
